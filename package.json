@@ -1,0 +1,55 @@
+{
+  "name": "rozenite-analytics-devtools",
+  "version": "0.0.1",
+  "description": "Rozenite analytics logger devtools",
+  "type": "module",
+  "scripts": {
+    "build": "rozenite build",
+    "dev": "rozenite dev"
+  },
+  "dependencies": {
+    "@rozenite/plugin-bridge": "^1.2.0"
+  },
+  "devDependencies": {
+    "vite": "^7.3.1",
+    "@rozenite/vite-plugin": "^1.2.0",
+    "typescript": "~5.9.3",
+    "rozenite": "^1.2.0",
+    "react-native-web": "^0.21.2",
+    "react": "19.1.0",
+    "react-dom": "19.1.0",
+    "react-native": "0.81.5",
+    "@types/react": "~19.1.10"
+  },
+  "peerDependencies": {
+    "@react-native-firebase/analytics": "*",
+    "clevertap-react-native": "*",
+    "react-native-adjust": "*",
+    "react": "*",
+    "react-native": "*"
+  },
+  "peerDependenciesMeta": {
+    "@react-native-firebase/analytics": {
+      "optional": true
+    },
+    "clevertap-react-native": {
+      "optional": true
+    },
+    "react-native-adjust": {
+      "optional": true
+    }
+  },
+  "license": "MIT",
+  "react-native": "./react-native.ts",
+  "main": "./dist/react-native/index.cjs",
+  "module": "./dist/react-native/index.js",
+  "types": "./dist/react-native/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/react-native/index.d.ts",
+      "import": "./dist/react-native/index.js",
+      "require": "./dist/react-native/index.cjs"
+    },
+    "./package.json": "./package.json"
+  }
+}
