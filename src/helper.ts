@@ -3,14 +3,12 @@ import { EVENT_SEARCH_MIN_LENGTH } from "./constants";
 
 export const formatTimestamp = (timestamp: number) => {
   const date = new Date(timestamp);
-  const time = date.toLocaleTimeString(undefined, {
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  const seconds = String(date.getSeconds()).padStart(2, "0");
   const ms = String(date.getMilliseconds()).padStart(3, "0");
 
-  return `${time}.${ms}`;
+  return `${hours}:${minutes}:${seconds}.${ms}`;
 };
 
 export const formatValue = (params: Record<string, unknown>) => {
@@ -20,6 +18,18 @@ export const formatValue = (params: Record<string, unknown>) => {
 
   try {
     return JSON.stringify(params, null, 2);
+  } catch {
+    return String(params);
+  }
+};
+
+export const formatValueCompact = (params: Record<string, unknown>) => {
+  if (Object.keys(params).length === 0) {
+    return "{}";
+  }
+
+  try {
+    return JSON.stringify(params);
   } catch {
     return String(params);
   }

@@ -13,6 +13,7 @@ import {
   formatSourceLabel,
   formatTimestamp,
   formatValue,
+  formatValueCompact,
 } from "./helper";
 
 const SOURCE_BADGE_STYLES: Record<string, React.CSSProperties> = {
@@ -33,6 +34,9 @@ const SOURCE_BADGE_STYLES: Record<string, React.CSSProperties> = {
   },
 };
 
+const getEventKey = (event: AnalyticsEventPayload, index: number) =>
+  `${event.timestamp}-${event.source}-${index}`;
+
 export default function AnalyticsLoggerPanel() {
   const client = useRozeniteDevToolsClient<AnalyticsLoggerEvents>({
     pluginId: PLUGIN_ID,
@@ -43,6 +47,8 @@ export default function AnalyticsLoggerPanel() {
   const [enabledSources, setEnabledSources] = useState<Set<string>>(
     () => new Set(ANALYTICS_SOURCES),
   );
+  const [selectedEventKey, setSelectedEventKey] = useState<string | null>(null);
+  const [hoveredEventKey, setHoveredEventKey] = useState<string | null>(null);
 
   useEffect(() => {
     if (!client) return;
@@ -66,6 +72,30 @@ export default function AnalyticsLoggerPanel() {
     () => filterAnalyticsEvents(events, enabledSources, debouncedSearch),
     [events, enabledSources, debouncedSearch],
   );
+
+  const selectedEvent = useMemo(() => {
+    if (!selectedEventKey) return null;
+
+    const index = filteredEvents.findIndex(
+      (event, eventIndex) =>
+        getEventKey(event, eventIndex) === selectedEventKey,
+    );
+
+    if (index === -1) return null;
+
+    return filteredEvents[index];
+  }, [filteredEvents, selectedEventKey]);
+
+  useEffect(() => {
+    if (
+      selectedEventKey &&
+      !filteredEvents.some(
+        (event, index) => getEventKey(event, index) === selectedEventKey,
+      )
+    ) {
+      setSelectedEventKey(null);
+    }
+  }, [filteredEvents, selectedEventKey]);
 
   const toggleSource = (source: string) => {
     setEnabledSources((prev) => {
@@ -108,7 +138,10 @@ export default function AnalyticsLoggerPanel() {
           <button
             type="button"
             style={styles.clearButton}
-            onClick={() => setEvents([])}
+            onClick={() => {
+              setEvents([]);
+              setSelectedEventKey(null);
+            }}
           >
             Clear
           </button>
@@ -158,49 +191,139 @@ export default function AnalyticsLoggerPanel() {
           <p style={styles.muted}>No events match the current filters.</p>
         </div>
       ) : (
-        <div style={styles.tableWrapper}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={{ ...styles.th, width: "22%" }}>Event Name</th>
-                <th style={{ ...styles.th, width: "110px" }}>Source</th>
-                <th style={styles.th}>Value</th>
-                <th style={{ ...styles.th, width: "96px" }}>Time</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredEvents.map((event, index) => (
-                <tr key={`${event.timestamp}-${event.source}-${index}`} style={styles.row}>
-                  <td style={styles.td}>
-                    <span style={styles.eventName}>
-                      {event.eventName ?? "N/A"}
-                    </span>
-                  </td>
-                  <td style={styles.td}>
-                    <span
-                      style={{
-                        ...styles.sourceBadge,
-                        ...SOURCE_BADGE_STYLES[event.source],
-                      }}
-                    >
-                      {formatSourceLabel(event.source)}
-                    </span>
-                  </td>
-                  <td style={styles.td}>
-                    <pre style={styles.value}>
-                      {formatValue(event.params ?? {})}
-                    </pre>
-                  </td>
-                  <td style={{ ...styles.td, ...styles.time }}>
-                    {event.timestamp
-                      ? formatTimestamp(event.timestamp)
-                      : "N/A"}
-                  </td>
+        <div style={styles.contentArea}>
+          <div style={styles.tableWrapper}>
+            <table style={styles.table}>
+              <thead>
+                <tr>
+                  <th style={{ ...styles.th, width: "120px" }}>Time</th>
+                  <th style={{ ...styles.th, width: "28%" }}>Event Name</th>
+                  <th style={{ ...styles.th, width: "110px" }}>Source</th>
+                  <th style={styles.th}>Value</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {filteredEvents.map((event, index) => {
+                  const eventKey = getEventKey(event, index);
+                  const isSelected = selectedEventKey === eventKey;
+                  const isHovered = hoveredEventKey === eventKey;
+
+                  return (
+                    <tr
+                      key={eventKey}
+                      style={{
+                        ...styles.row,
+                        ...(isSelected ? styles.rowSelected : {}),
+                        ...(isHovered && !isSelected ? styles.rowHover : {}),
+                      }}
+                      onClick={() => setSelectedEventKey(eventKey)}
+                      onMouseEnter={() => setHoveredEventKey(eventKey)}
+                      onMouseLeave={() => setHoveredEventKey(null)}
+                    >
+                      <td style={{ ...styles.td, ...styles.time }}>
+                        {event.timestamp
+                          ? formatTimestamp(event.timestamp)
+                          : "N/A"}
+                      </td>
+                      <td style={styles.td}>
+                        <span style={styles.eventName}>
+                          {event.eventName ?? "N/A"}
+                        </span>
+                      </td>
+                      <td style={styles.td}>
+                        <span
+                          style={{
+                            ...styles.sourceBadge,
+                            ...SOURCE_BADGE_STYLES[event.source],
+                          }}
+                        >
+                          {formatSourceLabel(event.source)}
+                        </span>
+                      </td>
+                      <td style={styles.td}>
+                        <span style={styles.valueCompact}>
+                          {formatValueCompact(event.params ?? {})}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          {selectedEvent && (
+            <aside style={styles.detailPanel}>
+              <div style={styles.detailHeader}>
+                <h3 style={styles.detailTitle}>Event Details</h3>
+                <button
+                  type="button"
+                  style={styles.closeButton}
+                  onClick={() => setSelectedEventKey(null)}
+                  aria-label="Close details"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div style={styles.detailBody}>
+                <DetailField
+                  label="Event Name"
+                  value={selectedEvent.eventName ?? "N/A"}
+                />
+                <DetailField
+                  label="Source"
+                  value={formatSourceLabel(selectedEvent.source)}
+                />
+                <DetailField
+                  label="Time"
+                  value={
+                    selectedEvent.timestamp
+                      ? formatTimestamp(selectedEvent.timestamp)
+                      : "N/A"
+                  }
+                  mono
+                />
+                <DetailField
+                  label="Value"
+                  value={formatValue(selectedEvent.params ?? {})}
+                  mono
+                  pre
+                />
+              </div>
+            </aside>
+          )}
         </div>
+      )}
+    </div>
+  );
+}
+
+function DetailField({
+  label,
+  value,
+  mono = false,
+  pre = false,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  pre?: boolean;
+}) {
+  return (
+    <div style={styles.detailField}>
+      <span style={styles.detailLabel}>{label}</span>
+      {pre ? (
+        <pre style={styles.detailValuePre}>{value}</pre>
+      ) : (
+        <span
+          style={{
+            ...styles.detailValue,
+            ...(mono ? styles.detailValueMono : {}),
+          }}
+        >
+          {value}
+        </span>
       )}
     </div>
   );
@@ -301,8 +424,16 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: "13px",
     color: "#71717a",
   },
+  contentArea: {
+    flex: 1,
+    minHeight: 0,
+    display: "flex",
+    gap: "12px",
+    overflow: "hidden",
+  },
   tableWrapper: {
     flex: 1,
+    minWidth: 0,
     minHeight: 0,
     border: "1px solid #3f3f46",
     borderRadius: "8px",
@@ -329,10 +460,18 @@ const styles: Record<string, React.CSSProperties> = {
   },
   row: {
     borderBottom: "1px solid #27272a",
+    cursor: "pointer",
+    transition: "background-color 0.15s ease",
+  },
+  rowHover: {
+    background: "#27272a",
+  },
+  rowSelected: {
+    background: "#3f3f46",
   },
   td: {
     padding: "12px",
-    verticalAlign: "top",
+    verticalAlign: "middle",
     fontSize: "13px",
   },
   eventName: {
@@ -341,21 +480,102 @@ const styles: Record<string, React.CSSProperties> = {
     color: "#93c5fd",
     wordBreak: "break-word",
   },
-  value: {
-    margin: 0,
+  valueCompact: {
+    display: "block",
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
     fontSize: "12px",
-    lineHeight: 1.5,
     color: "#d4d4d8",
-    whiteSpace: "pre-wrap",
-    wordBreak: "break-word",
-    maxHeight: "240px",
-    overflow: "auto",
+    whiteSpace: "nowrap",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
   },
   time: {
     color: "#71717a",
     fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
     fontSize: "12px",
     whiteSpace: "nowrap",
+  },
+  detailPanel: {
+    width: "360px",
+    flexShrink: 0,
+    display: "flex",
+    flexDirection: "column",
+    border: "1px solid #3f3f46",
+    borderRadius: "8px",
+    background: "#27272a",
+    overflow: "hidden",
+  },
+  detailHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "12px 14px",
+    borderBottom: "1px solid #3f3f46",
+    flexShrink: 0,
+  },
+  detailTitle: {
+    margin: 0,
+    fontSize: "14px",
+    fontWeight: 600,
+    color: "#e4e4e7",
+  },
+  closeButton: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: "28px",
+    height: "28px",
+    border: "none",
+    borderRadius: "6px",
+    background: "transparent",
+    color: "#a1a1aa",
+    fontSize: "20px",
+    lineHeight: 1,
+    cursor: "pointer",
+    padding: 0,
+  },
+  detailBody: {
+    flex: 1,
+    minHeight: 0,
+    overflow: "auto",
+    padding: "14px",
+    display: "flex",
+    flexDirection: "column",
+    gap: "16px",
+  },
+  detailField: {
+    display: "flex",
+    flexDirection: "column",
+    gap: "6px",
+  },
+  detailLabel: {
+    fontSize: "11px",
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: "0.04em",
+    color: "#71717a",
+  },
+  detailValue: {
+    fontSize: "13px",
+    color: "#e4e4e7",
+    wordBreak: "break-word",
+  },
+  detailValueMono: {
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    color: "#93c5fd",
+  },
+  detailValuePre: {
+    margin: 0,
+    padding: "10px 12px",
+    borderRadius: "6px",
+    background: "#18181b",
+    border: "1px solid #3f3f46",
+    fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+    fontSize: "12px",
+    lineHeight: 1.5,
+    color: "#d4d4d8",
+    whiteSpace: "pre-wrap",
+    wordBreak: "break-word",
+    overflow: "auto",
   },
 };
