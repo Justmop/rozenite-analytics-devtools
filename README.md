@@ -16,7 +16,7 @@ Rozenite devtools panel for monitoring analytics events from Firebase, CleverTap
 Install directly from GitHub:
 
 ```bash
-npm install github:yakupdurmus/rozenite-analytics-devtools.git
+npm install github:justmop/rozenite-analytics-devtools.git
 ```
 
 Or add it to your `package.json`:
@@ -24,7 +24,7 @@ Or add it to your `package.json`:
 ```json
 {
   "dependencies": {
-    "rozenite-analytics-devtools": "github:yakupdurmus/rozenite-analytics-devtools.git"
+    "rozenite-analytics-devtools": "github:justmop/rozenite-analytics-devtools.git"
   }
 }
 ```
