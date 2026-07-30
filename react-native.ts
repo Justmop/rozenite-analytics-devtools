@@ -1,13 +1,11 @@
+import { useEffect } from "react";
 import {
   RozeniteDevToolsClient,
   useRozeniteDevToolsClient,
 } from "@rozenite/plugin-bridge";
-import { firebaseAnalyticsAdapter } from "./src/analytics/firebase-analytics";
-import { cleverTapAnalyticsAdapter } from "./src/analytics/clevertap-analytics";
-import { adjustAnalyticsAdapter } from "./src/analytics/adjust-analytics";
+import { analyticsDevTools } from "./src/analytics/analytics-devtools";
 import type { AnalyticsLoggerEvents } from "./src/types";
-import type { AnalyticsSource } from "./src/constants";
-import { isNativeDev, ANALYTICS_EVENT, PLUGIN_ID } from "./src/constants";
+import { isNativeDev, PLUGIN_ID } from "./src/constants";
 
 export let useAnalyticsLoggerDevTools: () => RozeniteDevToolsClient<AnalyticsLoggerEvents> | null;
 
@@ -17,39 +15,21 @@ export default function setupPlugin(
   void client;
 }
 
-const sendAnalyticsEvent = (
-  client: RozeniteDevToolsClient<AnalyticsLoggerEvents>,
-  eventName: string,
-  params: Record<string, unknown> = {},
-  source: AnalyticsSource,
-) => {
-  client.send(ANALYTICS_EVENT, {
-    eventName,
-    params,
-    source,
-    timestamp: Date.now(),
-  });
-};
-
-const analyticsAdapters = [
-  firebaseAnalyticsAdapter,
-  cleverTapAnalyticsAdapter,
-  adjustAnalyticsAdapter,
-];
-
 if (isNativeDev) {
   useAnalyticsLoggerDevTools = () => {
     const client = useRozeniteDevToolsClient<AnalyticsLoggerEvents>({
       pluginId: PLUGIN_ID,
     });
 
-    if (!client) {
-      return null;
-    }
+    useEffect(() => {
+      if (!client) {
+        return;
+      }
 
-    for (const adapter of analyticsAdapters) {
-      adapter.bind(client, sendAnalyticsEvent);
-    }
+      analyticsDevTools.connect(client);
+
+      return () => analyticsDevTools.disconnect(client);
+    }, [client]);
 
     return client;
   };

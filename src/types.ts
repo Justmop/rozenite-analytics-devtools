@@ -13,8 +13,10 @@ export interface AnalyticsLoggerEvents extends Record<string, unknown> {
   [ANALYTICS_EVENT]: AnalyticsEventPayload;
 }
 
+export type AnalyticsLoggerClient =
+  RozeniteDevToolsClient<AnalyticsLoggerEvents>;
+
 export type SendAnalyticsEvent = (
-  client: RozeniteDevToolsClient<AnalyticsLoggerEvents>,
   eventName: string,
   params: Record<string, unknown> | undefined,
   source: AnalyticsSource,
@@ -22,10 +24,7 @@ export type SendAnalyticsEvent = (
 
 export type AnalyticsAdapter = {
   id: string;
-  bind: (
-    client: RozeniteDevToolsClient<AnalyticsLoggerEvents>,
-    sendEvent: SendAnalyticsEvent,
-  ) => void;
+  bind: (sendEvent: SendAnalyticsEvent) => void;
 };
 
 export type FirebaseAnalytics = {
