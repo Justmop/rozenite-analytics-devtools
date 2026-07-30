@@ -11,7 +11,7 @@ const getFirebaseAnalytics = (): (() => FirebaseAnalytics) | null => {
 
 export const firebaseAnalyticsAdapter: AnalyticsAdapter = {
   id: FIREBASE_ADAPTER_ID,
-  bind(client, sendEvent) {
+  bind(sendEvent) {
     const analytics = getFirebaseAnalytics();
     if (!analytics) {
       return;
@@ -22,7 +22,6 @@ export const firebaseAnalyticsAdapter: AnalyticsAdapter = {
 
     firebaseAnalytics.logEvent = (eventName, params) => {
       sendEvent(
-        client,
         eventName,
         params as Record<string, unknown>,
         FIREBASE_ADAPTER_ID,

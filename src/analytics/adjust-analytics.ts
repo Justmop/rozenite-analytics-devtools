@@ -40,7 +40,7 @@ const getAdjustEventPayload = (adjustEvent: AdjustEventInstance) => {
 
 export const adjustAnalyticsAdapter: AnalyticsAdapter = {
   id: ADJUST_ADAPTER_ID,
-  bind(client, sendEvent) {
+  bind(sendEvent) {
     const adjustModule = getAdjustModule();
     if (!adjustModule) {
       return;
@@ -52,7 +52,7 @@ export const adjustAnalyticsAdapter: AnalyticsAdapter = {
     Adjust.trackEvent = (adjustEvent) => {
       const { eventName, params } = getAdjustEventPayload(adjustEvent);
 
-      sendEvent(client, eventName, params, ADJUST_ADAPTER_ID);
+      sendEvent(eventName, params, ADJUST_ADAPTER_ID);
       return originalTrackEvent(adjustEvent);
     };
   },

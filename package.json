@@ -1,6 +1,6 @@
 {
   "name": "rozenite-analytics-devtools",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Rozenite analytics logger devtools",
   "type": "module",
   "scripts": {

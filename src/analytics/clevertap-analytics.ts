@@ -13,7 +13,7 @@ const getCleverTap = (): CleverTap | null => {
 
 export const cleverTapAnalyticsAdapter: AnalyticsAdapter = {
   id: CLEVERTAP_ADAPTER_ID,
-  bind(client, sendEvent) {
+  bind(sendEvent) {
     const cleverTap = getCleverTap();
 
     if (!cleverTap?.recordEvent) {
@@ -23,7 +23,7 @@ export const cleverTapAnalyticsAdapter: AnalyticsAdapter = {
     const originalRecordEvent = cleverTap.recordEvent;
 
     cleverTap.recordEvent = (eventName, clonedData) => {
-      sendEvent(client, eventName, clonedData ?? {}, CLEVERTAP_ADAPTER_ID);
+      sendEvent(eventName, clonedData ?? {}, CLEVERTAP_ADAPTER_ID);
 
       return originalRecordEvent.call(cleverTap, eventName, clonedData);
     };

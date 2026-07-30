@@ -1,102 +1,120 @@
-import { useRozeniteDevToolsClient as A } from "@rozenite/plugin-bridge";
-const p = "analytics-logger", f = "analytics-event", a = "firebase", i = "clevertap", l = "adjust", y = typeof window < "u" && window.navigator.product !== "ReactNative", E = process.env.NODE_ENV !== "production", g = typeof window > "u", T = E && !y && !g, b = () => {
+import { useEffect as p } from "react";
+import { useRozeniteDevToolsClient as g } from "@rozenite/plugin-bridge";
+const E = "analytics-logger", y = "analytics-event", i = "firebase", a = "clevertap", l = "adjust", T = typeof window < "u" && window.navigator.product !== "ReactNative", b = process.env.NODE_ENV !== "production", h = typeof window > "u", D = b && !T && !h, m = () => {
   try {
     return require("@react-native-firebase/analytics").default;
   } catch {
     return null;
   }
-}, D = {
-  id: a,
-  bind(e, n) {
-    const t = b();
-    if (!t)
+}, P = {
+  id: i,
+  bind(t) {
+    const e = m();
+    if (!e)
       return;
-    const r = t(), o = r.logEvent.bind(r);
-    r.logEvent = (c, s) => (n(
-      e,
-      c,
+    const n = e(), r = n.logEvent.bind(n);
+    n.logEvent = (s, o) => (t(
       s,
-      a
-    ), o(c, s));
+      o,
+      i
+    ), r(s, o));
   }
-}, P = () => {
+}, I = () => {
   try {
-    const e = require("clevertap-react-native");
-    return e?.default ?? e;
+    const t = require("clevertap-react-native");
+    return t?.default ?? t;
   } catch {
     return null;
   }
 }, k = {
-  id: i,
-  bind(e, n) {
-    const t = P();
-    if (!t?.recordEvent)
+  id: a,
+  bind(t) {
+    const e = I();
+    if (!e?.recordEvent)
       return;
-    const r = t.recordEvent;
-    t.recordEvent = (o, c) => (n(e, o, c ?? {}, i), r.call(t, o, c));
+    const n = e.recordEvent;
+    e.recordEvent = (r, s) => (t(r, s ?? {}, a), n.call(e, r, s));
   }
-}, _ = () => {
+}, N = () => {
   try {
     return require("react-native-adjust");
   } catch {
     return null;
   }
-}, u = (e = []) => {
-  const n = {};
-  for (let t = 0; t < e.length; t += 2) {
-    const r = e[t], o = e[t + 1];
-    r != null && (n[r] = o);
+}, u = (t = []) => {
+  const e = {};
+  for (let n = 0; n < t.length; n += 2) {
+    const r = t[n], s = t[n + 1];
+    r != null && (e[r] = s);
   }
-  return n;
-}, m = (e) => {
-  const n = u(e.callbackParameters), t = u(e.partnerParameters);
+  return e;
+}, _ = (t) => {
+  const e = u(t.callbackParameters), n = u(t.partnerParameters);
   return {
-    eventName: e.eventToken,
+    eventName: t.eventToken,
     params: {
-      eventToken: e.eventToken,
-      ...n,
-      partnerParameters: t
+      eventToken: t.eventToken,
+      ...e,
+      partnerParameters: n
     }
   };
-}, I = {
+}, w = {
   id: l,
-  bind(e, n) {
-    const t = _();
-    if (!t)
+  bind(t) {
+    const e = N();
+    if (!e)
       return;
-    const { Adjust: r } = t, o = r.trackEvent.bind(r);
-    r.trackEvent = (c) => {
-      const { eventName: s, params: v } = m(c);
-      return n(e, s, v, l), o(c);
+    const { Adjust: n } = e, r = n.trackEvent.bind(n);
+    n.trackEvent = (s) => {
+      const { eventName: o, params: f } = _(s);
+      return t(o, f, l), r(s);
     };
   }
-};
-let d;
-function L(e) {
-}
-const R = (e, n, t = {}, r) => {
-  e.send(f, {
-    eventName: n,
-    params: t,
-    source: r,
-    timestamp: Date.now()
-  });
-}, w = [
-  D,
+}, R = [
+  P,
   k,
-  I
-];
-T ? d = () => {
-  const e = A({
-    pluginId: p
+  w
+], d = /* @__PURE__ */ Symbol.for("rozenite-analytics-logger.devtools");
+class c {
+  constructor() {
+    this.client = null, this.areAdaptersBound = !1, this.sendEvent = (e, n, r) => {
+      this.client?.send(y, {
+        eventName: e,
+        params: n ?? {},
+        source: r,
+        timestamp: Date.now()
+      });
+    };
+  }
+  static getInstance() {
+    const e = globalThis, n = e[d] ?? new c();
+    return e[d] = n, n;
+  }
+  connect(e) {
+    if (this.client = e, !this.areAdaptersBound) {
+      this.areAdaptersBound = !0;
+      for (const n of R)
+        n.bind(this.sendEvent);
+    }
+  }
+  disconnect(e) {
+    this.client === e && (this.client = null);
+  }
+}
+const v = c.getInstance();
+let A;
+function L(t) {
+}
+D ? A = () => {
+  const t = g({
+    pluginId: E
   });
-  if (!e)
-    return null;
-  for (const n of w)
-    n.bind(e, R);
-  return e;
-} : d = () => null;
+  return p(() => {
+    if (t)
+      return v.connect(t), () => v.disconnect(t);
+  }, [t]), t;
+} : A = () => null;
 export {
   L as default,
-  d as useAnalyticsLoggerDevTools
+  A as useAnalyticsLoggerDevTools
 };
