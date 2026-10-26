@@ -1,5 +1,9 @@
 import type { AnalyticsEventPayload } from "./types";
-import { EVENT_SEARCH_MIN_LENGTH } from "./constants";
+import { ANALYTICS_SOURCES, EVENT_SEARCH_MIN_LENGTH } from "./constants";
+import type { AnalyticsSource } from "./constants";
+
+export type AnalyticsSortKey = "timestamp" | "eventName" | "source";
+export type AnalyticsSortDirection = "asc" | "desc";
 
 export const formatTimestamp = (timestamp: number) => {
   const date = new Date(timestamp);
@@ -48,8 +52,8 @@ export const formatSourceLabel = (source: string) => {
   }
 };
 
-export const filterAnalyticsEvents = (
-  events: AnalyticsEventPayload[],
+export const filterAnalyticsEvents = <T extends AnalyticsEventPayload>(
+  events: T[],
   enabledSources: Set<string>,
   searchQuery: string,
 ) => {
@@ -68,4 +72,55 @@ export const filterAnalyticsEvents = (
 
     return event.eventName.toLowerCase().includes(normalizedSearch);
   });
+};
+
+export const sortAnalyticsEvents = <T extends AnalyticsEventPayload>(
+  events: T[],
+  sortKey: AnalyticsSortKey | null,
+  direction: AnalyticsSortDirection,
+) => {
+  if (!sortKey) {
+    return events;
+  }
+
+  const factor = direction === "asc" ? 1 : -1;
+
+  return [...events].sort((left, right) => {
+    if (sortKey === "timestamp") {
+      return (left.timestamp - right.timestamp) * factor;
+    }
+
+    if (sortKey === "source") {
+      return (
+        (ANALYTICS_SOURCES.indexOf(left.source) -
+          ANALYTICS_SOURCES.indexOf(right.source)) *
+        factor
+      );
+    }
+
+    return (
+      left.eventName.localeCompare(right.eventName, undefined, {
+        sensitivity: "base",
+      }) * factor
+    );
+  });
+};
+
+export const selectEventsForExport = (
+  events: AnalyticsEventPayload[],
+  source: AnalyticsSource | null,
+  sortKey: AnalyticsSortKey | null,
+  direction: AnalyticsSortDirection,
+) => {
+  const matching =
+    source === null
+      ? events
+      : events.filter((event) => event.source === source);
+
+  return sortAnalyticsEvents(matching, sortKey, direction).map((event) => ({
+    eventName: event.eventName,
+    params: event.params,
+    source: event.source,
+    timestamp: event.timestamp,
+  }));
 };
