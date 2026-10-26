@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useRozeniteDevToolsClient } from "@rozenite/plugin-bridge";
 import type { AnalyticsEventPayload, AnalyticsLoggerEvents } from "./types";
 import {
@@ -8,13 +8,53 @@ import {
   EVENT_SEARCH_MIN_LENGTH,
   PLUGIN_ID,
 } from "./constants";
+import type { AnalyticsSource } from "./constants";
 import {
   filterAnalyticsEvents,
   formatSourceLabel,
   formatTimestamp,
   formatValue,
   formatValueCompact,
+  selectEventsForExport,
+  sortAnalyticsEvents,
 } from "./helper";
+import type { AnalyticsSortDirection, AnalyticsSortKey } from "./helper";
+
+type LoggedAnalyticsEvent = AnalyticsEventPayload & { id: number };
+type ColumnKey = "time" | "eventName" | "source" | "value";
+
+const MIN_COLUMN_WIDTHS: Record<ColumnKey, number> = {
+  time: 128,
+  eventName: 140,
+  source: 120,
+  value: 160,
+};
+
+const MAX_COLUMN_WIDTH = 2400;
+
+const DEFAULT_COLUMN_WIDTHS: Record<ColumnKey, number> = {
+  time: 140,
+  eventName: 280,
+  source: 120,
+  value: 360,
+};
+
+const clampColumnWidth = (key: ColumnKey, width: number) =>
+  Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTHS[key], Math.round(width)));
+
+const downloadJson = (filename: string, data: unknown) => {
+  const blob = new Blob([JSON.stringify(data, null, 2)], {
+    type: "application/json",
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+};
 
 const SOURCE_BADGE_STYLES: Record<string, React.CSSProperties> = {
   firebase: {
@@ -34,27 +74,35 @@ const SOURCE_BADGE_STYLES: Record<string, React.CSSProperties> = {
   },
 };
 
-const getEventKey = (event: AnalyticsEventPayload, index: number) =>
-  `${event.timestamp}-${event.source}-${index}`;
-
 export default function AnalyticsLoggerPanel() {
   const client = useRozeniteDevToolsClient<AnalyticsLoggerEvents>({
     pluginId: PLUGIN_ID,
   });
-  const [events, setEvents] = useState<AnalyticsEventPayload[]>([]);
+  const [events, setEvents] = useState<LoggedAnalyticsEvent[]>([]);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [enabledSources, setEnabledSources] = useState<Set<string>>(
     () => new Set(ANALYTICS_SOURCES),
   );
-  const [selectedEventKey, setSelectedEventKey] = useState<string | null>(null);
-  const [hoveredEventKey, setHoveredEventKey] = useState<string | null>(null);
+  const [selectedEventId, setSelectedEventId] = useState<number | null>(null);
+  const [hoveredEventId, setHoveredEventId] = useState<number | null>(null);
+  const [sortKey, setSortKey] = useState<AnalyticsSortKey | null>(null);
+  const [sortDirection, setSortDirection] =
+    useState<AnalyticsSortDirection>("asc");
+  const [isExportMenuOpen, setIsExportMenuOpen] = useState(false);
+  const [columnWidths, setColumnWidths] = useState(DEFAULT_COLUMN_WIDTHS);
+  const nextEventId = useRef(1);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
+  const tableWrapperRef = useRef<HTMLDivElement>(null);
+  const resizeCleanup = useRef<(() => void) | null>(null);
 
   useEffect(() => {
     if (!client) return;
 
     const subscription = client.onMessage(ANALYTICS_EVENT, (data) => {
-      setEvents((prev) => [data, ...prev]);
+      const id = nextEventId.current;
+      nextEventId.current += 1;
+      setEvents((prev) => [{ ...data, id }, ...prev]);
     });
 
     return () => subscription.remove();
@@ -73,29 +121,169 @@ export default function AnalyticsLoggerPanel() {
     [events, enabledSources, debouncedSearch],
   );
 
-  const selectedEvent = useMemo(() => {
-    if (!selectedEventKey) return null;
+  const sortedEvents = useMemo(
+    () => sortAnalyticsEvents(filteredEvents, sortKey, sortDirection),
+    [filteredEvents, sortKey, sortDirection],
+  );
 
-    const index = filteredEvents.findIndex(
-      (event, eventIndex) =>
-        getEventKey(event, eventIndex) === selectedEventKey,
-    );
+  const sourceCounts = useMemo(() => {
+    const counts = new Map<AnalyticsSource, number>();
 
-    if (index === -1) return null;
+    for (const source of ANALYTICS_SOURCES) {
+      counts.set(source, 0);
+    }
 
-    return filteredEvents[index];
-  }, [filteredEvents, selectedEventKey]);
+    for (const event of events) {
+      counts.set(event.source, (counts.get(event.source) ?? 0) + 1);
+    }
+
+    return counts;
+  }, [events]);
+
+  const selectedEvent = useMemo(
+    () => sortedEvents.find((event) => event.id === selectedEventId) ?? null,
+    [sortedEvents, selectedEventId],
+  );
+
+  const isTableVisible = Boolean(client) && sortedEvents.length > 0;
 
   useEffect(() => {
     if (
-      selectedEventKey &&
-      !filteredEvents.some(
-        (event, index) => getEventKey(event, index) === selectedEventKey,
-      )
+      selectedEventId !== null &&
+      !filteredEvents.some((event) => event.id === selectedEventId)
     ) {
-      setSelectedEventKey(null);
+      setSelectedEventId(null);
     }
-  }, [filteredEvents, selectedEventKey]);
+  }, [filteredEvents, selectedEventId]);
+
+  useEffect(() => {
+    if (!isExportMenuOpen) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      if (!exportMenuRef.current?.contains(event.target as Node)) {
+        setIsExportMenuOpen(false);
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setIsExportMenuOpen(false);
+      }
+    };
+
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKeyDown);
+    };
+  }, [isExportMenuOpen]);
+
+  useEffect(() => {
+    return () => resizeCleanup.current?.();
+  }, []);
+
+  useEffect(() => {
+    const wrapper = tableWrapperRef.current;
+
+    if (!isTableVisible || !wrapper) return;
+
+    const fitValueColumn = () => {
+      const available = wrapper.clientWidth;
+
+      if (available < 200) return;
+
+      setColumnWidths((prev) => {
+        const nextValue = Math.max(
+          MIN_COLUMN_WIDTHS.value,
+          available - prev.time - prev.eventName - prev.source - 1,
+        );
+
+        if (Math.abs(nextValue - prev.value) < 2) return prev;
+
+        return { ...prev, value: nextValue };
+      });
+    };
+
+    fitValueColumn();
+    const observer = new ResizeObserver(fitValueColumn);
+    observer.observe(wrapper);
+
+    return () => observer.disconnect();
+  }, [isTableVisible]);
+
+  const toggleSort = (key: AnalyticsSortKey) => {
+    if (sortKey !== key) {
+      setSortKey(key);
+      setSortDirection("asc");
+      return;
+    }
+
+    setSortDirection((current) => (current === "asc" ? "desc" : "asc"));
+  };
+
+  const beginResize = (
+    key: Exclude<ColumnKey, "value">,
+    event: React.MouseEvent,
+  ) => {
+    event.preventDefault();
+    event.stopPropagation();
+    resizeCleanup.current?.();
+
+    const startX = event.clientX;
+    const startWidths = columnWidths;
+
+    const onMove = (moveEvent: MouseEvent) => {
+      const delta = moveEvent.clientX - startX;
+
+      setColumnWidths(() => {
+        const next = { ...startWidths };
+        const resized = clampColumnWidth(key, startWidths[key] + delta);
+        const applied = resized - startWidths[key];
+        const valueAfter = startWidths.value - applied;
+
+        if (applied > 0 && valueAfter < MIN_COLUMN_WIDTHS.value) {
+          next[key] = resized;
+          next.value = MIN_COLUMN_WIDTHS.value;
+          return next;
+        }
+
+        next[key] = resized;
+        next.value = Math.max(MIN_COLUMN_WIDTHS.value, Math.round(valueAfter));
+        return next;
+      });
+    };
+
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      resizeCleanup.current = null;
+    };
+
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    resizeCleanup.current = onUp;
+  };
+
+  const exportEvents = (source: AnalyticsSource | null) => {
+    const payload = selectEventsForExport(
+      events,
+      source,
+      sortKey,
+      sortDirection,
+    );
+    const filename = source
+      ? `analytics-events-${source}.json`
+      : "analytics-events.json";
+
+    downloadJson(filename, payload);
+    setIsExportMenuOpen(false);
+  };
 
   const toggleSource = (source: string) => {
     setEnabledSources((prev) => {
@@ -135,16 +323,50 @@ export default function AnalyticsLoggerPanel() {
           </p>
         </div>
         {events.length > 0 && (
-          <button
-            type="button"
-            style={styles.clearButton}
-            onClick={() => {
-              setEvents([]);
-              setSelectedEventKey(null);
-            }}
-          >
-            Clear
-          </button>
+          <div style={styles.headerActions}>
+            <div ref={exportMenuRef} style={styles.exportMenuAnchor}>
+              <button
+                type="button"
+                style={{
+                  ...styles.clearButton,
+                  ...(isExportMenuOpen ? styles.exportButtonOpen : {}),
+                }}
+                aria-haspopup="menu"
+                aria-expanded={isExportMenuOpen}
+                onClick={() => setIsExportMenuOpen((open) => !open)}
+              >
+                Export
+              </button>
+              {isExportMenuOpen && (
+                <div role="menu" style={styles.exportMenu}>
+                  <ExportMenuItem
+                    label="All events"
+                    count={events.length}
+                    onClick={() => exportEvents(null)}
+                  />
+                  {ANALYTICS_SOURCES.map((source) => (
+                    <ExportMenuItem
+                      key={source}
+                      label={formatSourceLabel(source)}
+                      count={sourceCounts.get(source) ?? 0}
+                      onClick={() => exportEvents(source)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              type="button"
+              style={styles.clearButton}
+              onClick={() => {
+                setEvents([]);
+                setSelectedEventId(null);
+                setIsExportMenuOpen(false);
+              }}
+            >
+              Clear
+            </button>
+          </div>
         )}
       </div>
 
@@ -192,33 +414,80 @@ export default function AnalyticsLoggerPanel() {
         </div>
       ) : (
         <div style={styles.contentArea}>
-          <div style={styles.tableWrapper}>
-            <table style={styles.table}>
+          <div ref={tableWrapperRef} style={styles.tableWrapper}>
+            <table
+              style={{
+                ...styles.table,
+                width:
+                  columnWidths.time +
+                  columnWidths.eventName +
+                  columnWidths.source +
+                  columnWidths.value,
+              }}
+            >
+              <colgroup>
+                <col style={{ width: columnWidths.time }} />
+                <col style={{ width: columnWidths.eventName }} />
+                <col style={{ width: columnWidths.source }} />
+                <col style={{ width: columnWidths.value }} />
+              </colgroup>
               <thead>
                 <tr>
-                  <th style={{ ...styles.th, width: "120px" }}>Time</th>
-                  <th style={{ ...styles.th, width: "28%" }}>Event Name</th>
-                  <th style={{ ...styles.th, width: "110px" }}>Source</th>
+                  <th
+                    style={styles.th}
+                    aria-sort={ariaSort("timestamp", sortKey, sortDirection)}
+                  >
+                    <ColumnHeader
+                      label="Time"
+                      isActive={sortKey === "timestamp"}
+                      direction={sortDirection}
+                      onSort={() => toggleSort("timestamp")}
+                      onResizeStart={(event) => beginResize("time", event)}
+                    />
+                  </th>
+                  <th
+                    style={styles.th}
+                    aria-sort={ariaSort("eventName", sortKey, sortDirection)}
+                  >
+                    <ColumnHeader
+                      label="Event Name"
+                      isActive={sortKey === "eventName"}
+                      direction={sortDirection}
+                      onSort={() => toggleSort("eventName")}
+                      onResizeStart={(event) => beginResize("eventName", event)}
+                    />
+                  </th>
+                  <th
+                    style={styles.th}
+                    aria-sort={ariaSort("source", sortKey, sortDirection)}
+                  >
+                    <ColumnHeader
+                      label="Source"
+                      isActive={sortKey === "source"}
+                      direction={sortDirection}
+                      onSort={() => toggleSort("source")}
+                      onResizeStart={(event) => beginResize("source", event)}
+                    />
+                  </th>
                   <th style={styles.th}>Value</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredEvents.map((event, index) => {
-                  const eventKey = getEventKey(event, index);
-                  const isSelected = selectedEventKey === eventKey;
-                  const isHovered = hoveredEventKey === eventKey;
+                {sortedEvents.map((event) => {
+                  const isSelected = selectedEventId === event.id;
+                  const isHovered = hoveredEventId === event.id;
 
                   return (
                     <tr
-                      key={eventKey}
+                      key={event.id}
                       style={{
                         ...styles.row,
                         ...(isSelected ? styles.rowSelected : {}),
                         ...(isHovered && !isSelected ? styles.rowHover : {}),
                       }}
-                      onClick={() => setSelectedEventKey(eventKey)}
-                      onMouseEnter={() => setHoveredEventKey(eventKey)}
-                      onMouseLeave={() => setHoveredEventKey(null)}
+                      onClick={() => setSelectedEventId(event.id)}
+                      onMouseEnter={() => setHoveredEventId(event.id)}
+                      onMouseLeave={() => setHoveredEventId(null)}
                     >
                       <td style={{ ...styles.td, ...styles.time }}>
                         {event.timestamp
@@ -259,7 +528,7 @@ export default function AnalyticsLoggerPanel() {
                 <button
                   type="button"
                   style={styles.closeButton}
-                  onClick={() => setSelectedEventKey(null)}
+                  onClick={() => setSelectedEventId(null)}
                   aria-label="Close details"
                 >
                   ×
@@ -296,6 +565,87 @@ export default function AnalyticsLoggerPanel() {
         </div>
       )}
     </div>
+  );
+}
+
+function ariaSort(
+  key: AnalyticsSortKey,
+  activeKey: AnalyticsSortKey | null,
+  direction: AnalyticsSortDirection,
+): "ascending" | "descending" | "none" {
+  if (activeKey !== key) return "none";
+  return direction === "asc" ? "ascending" : "descending";
+}
+
+function ColumnHeader({
+  label,
+  isActive,
+  direction,
+  onSort,
+  onResizeStart,
+}: {
+  label: string;
+  isActive: boolean;
+  direction: AnalyticsSortDirection;
+  onSort?: () => void;
+  onResizeStart: (event: React.MouseEvent<HTMLSpanElement>) => void;
+}) {
+  return (
+    <div style={styles.headerCell}>
+      {onSort ? (
+        <button type="button" style={styles.sortButton} onClick={onSort}>
+          {label}
+          {isActive && (
+            <span style={styles.sortIndicator}>
+              {direction === "asc" ? "↑" : "↓"}
+            </span>
+          )}
+        </button>
+      ) : (
+        <span>{label}</span>
+      )}
+      <span
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={`Resize ${label} column`}
+        style={styles.resizeHandle}
+        onMouseDown={onResizeStart}
+      >
+        <span style={styles.resizeHandleLine} />
+      </span>
+    </div>
+  );
+}
+
+function ExportMenuItem({
+  label,
+  count,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  onClick: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const disabled = count === 0;
+
+  return (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={disabled}
+      onClick={onClick}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      style={{
+        ...styles.exportMenuItem,
+        ...(disabled ? styles.exportMenuItemDisabled : {}),
+        ...(hovered && !disabled ? styles.exportMenuItemHover : {}),
+      }}
+    >
+      <span>{label}</span>
+      <span style={styles.exportMenuCount}>{count}</span>
+    </button>
   );
 }
 
@@ -370,6 +720,58 @@ const styles: Record<string, React.CSSProperties> = {
     cursor: "pointer",
     flexShrink: 0,
   },
+  headerActions: {
+    display: "flex",
+    alignItems: "center",
+    gap: "8px",
+    flexShrink: 0,
+  },
+  exportMenuAnchor: {
+    position: "relative",
+  },
+  exportButtonOpen: {
+    background: "#3f3f46",
+  },
+  exportMenu: {
+    position: "absolute",
+    top: "calc(100% + 6px)",
+    right: 0,
+    zIndex: 5,
+    minWidth: "190px",
+    padding: "4px",
+    borderRadius: "8px",
+    border: "1px solid #3f3f46",
+    background: "#27272a",
+    boxShadow: "0 8px 24px rgba(0, 0, 0, 0.35)",
+    display: "flex",
+    flexDirection: "column",
+  },
+  exportMenuItem: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: "12px",
+    width: "100%",
+    border: "none",
+    background: "transparent",
+    color: "#e4e4e7",
+    borderRadius: "6px",
+    padding: "8px 10px",
+    fontSize: "13px",
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  exportMenuItemHover: {
+    background: "#3f3f46",
+  },
+  exportMenuItemDisabled: {
+    color: "#71717a",
+    cursor: "default",
+  },
+  exportMenuCount: {
+    color: "#a1a1aa",
+    fontVariantNumeric: "tabular-nums",
+  },
   filters: {
     display: "flex",
     flexDirection: "column",
@@ -440,13 +842,12 @@ const styles: Record<string, React.CSSProperties> = {
     overflow: "auto",
   },
   table: {
-    width: "100%",
     borderCollapse: "collapse",
     tableLayout: "fixed",
   },
   th: {
     textAlign: "left",
-    padding: "10px 12px",
+    padding: "10px 0 10px 12px",
     fontSize: "12px",
     fontWeight: 600,
     textTransform: "uppercase",
@@ -457,6 +858,49 @@ const styles: Record<string, React.CSSProperties> = {
     position: "sticky",
     top: 0,
     zIndex: 1,
+  },
+  headerCell: {
+    display: "flex",
+    alignItems: "center",
+    minWidth: 0,
+    paddingRight: "8px",
+  },
+  sortButton: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: "6px",
+    margin: 0,
+    padding: 0,
+    border: "none",
+    background: "transparent",
+    color: "inherit",
+    font: "inherit",
+    letterSpacing: "inherit",
+    textTransform: "inherit",
+    cursor: "pointer",
+    textAlign: "left",
+  },
+  sortIndicator: {
+    color: "#e4e4e7",
+    fontSize: "11px",
+  },
+  resizeHandle: {
+    position: "absolute",
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: "8px",
+    cursor: "col-resize",
+    zIndex: 2,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resizeHandleLine: {
+    width: "2px",
+    height: "16px",
+    borderRadius: "1px",
+    background: "#52525b",
   },
   row: {
     borderBottom: "1px solid #27272a",
@@ -473,6 +917,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: "12px",
     verticalAlign: "middle",
     fontSize: "13px",
+    overflow: "hidden",
   },
   eventName: {
     display: "inline-block",
