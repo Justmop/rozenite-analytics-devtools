@@ -1,4 +1,7 @@
-export const PLUGIN_ID = "analytics-logger";
+// Must match the npm package name: since Rozenite 2.2 the DevTools shell only
+// forwards a message to the panels of the plugin whose id equals its
+// `pluginId`, and a plugin's id is its package name.
+export const PLUGIN_ID = "rozenite-analytics-devtools";
 
 export const ANALYTICS_EVENT = "analytics-event" as const;
 

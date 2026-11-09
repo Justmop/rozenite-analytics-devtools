@@ -1,0 +1,13 @@
+export declare const PLUGIN_ID = "rozenite-analytics-devtools";
+export declare const ANALYTICS_EVENT: "analytics-event";
+export declare const FIREBASE_ADAPTER_ID = "firebase";
+export declare const CLEVERTAP_ADAPTER_ID = "clevertap";
+export declare const ADJUST_ADAPTER_ID = "adjust";
+export declare const ANALYTICS_SOURCES: readonly ["firebase", "clevertap", "adjust"];
+export type AnalyticsSource = (typeof ANALYTICS_SOURCES)[number];
+export declare const EVENT_SEARCH_MIN_LENGTH = 3;
+export declare const EVENT_SEARCH_DEBOUNCE_MS = 300;
+export declare const isWeb: boolean;
+export declare const isDev: boolean;
+export declare const isServer: boolean;
+export declare const isNativeDev: boolean;
